@@ -453,8 +453,9 @@ struct DEBUG_RECORDS{
 };
 
 
-
-DEBUG_RECORDS *DebugRecordArray;
+namespace {
+    DEBUG_RECORDS *DebugRecordArray;
+}
 
 
 
