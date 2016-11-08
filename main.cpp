@@ -2,7 +2,8 @@
 #include <chrono>
 #include <sys/mman.h>
 #include <SDL2/SDL.h>
-
+#include <SDL2/SDL_ttf.h>
+#include <sstream>
 
 
 #include "hotreload.h"
@@ -54,10 +55,103 @@ void* Filler(void* Code)
     return reinterpret_cast<void*>(Result);
 }
 
+
+void HandleInput(){
+    TIMEBLOCK;
+
+    SDL_Event event;
+    while(SDL_PollEvent(&event) != 0) {
+        switch(event.key.keysym.sym) {
+            case SDL_QUIT:
+            case SDLK_ESCAPE:
+                exit(0);
+        }
+    }
+}
+
+/**
+* Render the message we want to display to a texture for drawing
+* @param message The message we want to display
+* @param fontFile The font we want to use to render the text
+* @param color The color we want the text to be
+* @param fontSize The size we want the font to be
+* @param renderer The renderer to load the texture in
+* @return An SDL_Texture containing the rendered message, or nullptr if something went wrong
+*/
+SDL_Texture* renderText(const std::string &message, const std::string &fontFile,
+                        SDL_Color color, int fontSize, SDL_Renderer *renderer)
+{
+    TIMEBLOCK;
+    //Open the font
+    TTF_Font *font = TTF_OpenFont(fontFile.c_str(), fontSize);
+    if (font == nullptr){
+        //logSDLError(std::cout, "TTF_OpenFont");
+        return nullptr;
+    }
+    //We need to first render to a surface as that's what TTF_RenderText
+    //returns, then load that surface into a texture
+    SDL_Surface *surf = TTF_RenderText_Blended_Wrapped(font, message.c_str(), color,1324);
+    if (surf == nullptr){
+        TTF_CloseFont(font);
+        //logSDLError(std::cout, "TTF_RenderText");
+        return nullptr;
+    }
+    SDL_Texture *texture = SDL_CreateTextureFromSurface(renderer, surf);
+    if (texture == nullptr){
+        //logSDLError(std::cout, "CreateTexture");
+    }
+    //Clean up the surface and font
+    SDL_FreeSurface(surf);
+    TTF_CloseFont(font);
+    return texture;
+}
+
+auto printDebug(SDL_Renderer *renderer, double d) -> SDL_Texture*
+{
+    TIMEBLOCK;
+    std::stringstream s;
+    for(int size = 0; size < ArrayCount(records);size++)
+    {
+
+        s<<"Function: \t"<<records[size].functionname
+         <<"Cycle: \t"<<(records[size].CycleCount/1000) <<" [mc]\t"
+         <<"Cycle/Frame: \t"<<(records[size].CycleCount/1000)/d <<" [mc/f]\t"
+         <<"Delta: \t" <<records[size].DeltaValue <<" [ns]\t"
+         <<"Cy*Delta: \t"<<((records[size].CycleCount/1000)*(records[size].DeltaValue))*d<<" [mc*delta/f]"
+         <<" \n";
+    }
+
+    return  renderText(s.str(),"/home/johannes/ClionProjects/HotReload/OpenSans-SemiboldItalic.ttf",{255,255,255,SDL_ALPHA_OPAQUE},18,renderer);
+    /*if(Text == nullptr)
+    {
+        std::cerr<<SDL_GetError()<<"\n";
+        exit(1);
+    }
+    SDL_RenderCopy(renderer,Text,nullptr,&(SDL_Rect{0,0,1124,225}));
+    std::cerr<<s.str();*/
+
+
+}
+
+void pi_test_()
+{
+    TIMEBLOCK;
+
+}
+
+void pi2_test()
+{
+    TIMEBLOCK;
+
+}
+/*
+namespace {
+    DEBUG_RECORDS records[__COUNTER__ + 1];
+}*/
+
 int main(int argc, char** argv) {
 
-    std::cerr<<"Anzahl der Argumente: "<<argc<<"\n";
-    std::cerr<<argv[0]<<"\n\n";
+    //TIMEBLOCK;
 
     ///////////////////////////////////////////////////////////////////////////
     ///////////////////Create Configuartion Settings///////////////////////////
@@ -68,6 +162,7 @@ int main(int argc, char** argv) {
 
     ConfigSettingInt MemorySize("MemorySize","The amount of Memory which should be managed by the programm",Gigabytes(1));
 
+
     ///////////////////////////////////////////////////////////////////////////
     ///////////////////Declare Program Specific Variables//////////////////////
     ///////////////////////////////////////////////////////////////////////////
@@ -77,6 +172,11 @@ int main(int argc, char** argv) {
 
     //Graphic
     Wrapper::SDL sdl(SDL_INIT_EVERYTHING);
+    if (TTF_Init() != 0){
+        //logSDLError(std::cout, "TTF_Init");
+        SDL_Quit();
+        return 1;
+    }
     SDL_Window* win = nullptr;
     SDL_Renderer* renderer = nullptr;
 
@@ -93,18 +193,14 @@ int main(int argc, char** argv) {
     ///////////////////Initialise Variables////////////////////////////////////
     ///////////////////////////////////////////////////////////////////////////
     //Initiate Memory Managment
+    SDL_Texture* DEBUGINFO = nullptr;
 
     MemoryOrigin = mmap(BaseAdress,*head->FindSetting("MemorySize"),PROT_READ|PROT_WRITE,MAP_ANONYMOUS,-1,0);
     if(MemoryOrigin == nullptr)
         throw std::bad_alloc();
 
     //Initiate graphic output
-
-    SDL_CreateWindowAndRenderer(500,500,SDL_WINDOW_SHOWN,&win,&renderer);
-
-
-    std::cerr<<"CycleHigh Delta: "<<high<<"|"<<high<<" CycleLow Delta: "<<((low2-low))/1000.f/1000.f<<" MegaCycle"<<"\n";
-
+    SDL_CreateWindowAndRenderer(1224,786,SDL_WINDOW_SHOWN,&win,&renderer);
 
     if(win == nullptr || renderer == nullptr)
         std::cerr<<SDL_GetError()<<"\n";
@@ -123,21 +219,7 @@ int main(int argc, char** argv) {
                 sleep(1);
                 Library.reload();
             }
-
-            //RenderLogic
-
-            SDL_RenderClear(renderer);
-
-
-
-            if(true)
-            {
-                //API.Error(nullptr);
-                ((hotreload_error*)(Library["hotreload_error"]))(nullptr);
-            }
-            SDL_RenderPresent(renderer);
-
-
+            ///////////////////////////////////////////////////////////////////////////////////////////////////////////
             //EventLogic
             //
             currentSlice = lastFt;
@@ -145,21 +227,25 @@ int main(int argc, char** argv) {
             {
                 //logic
                 //someupdatefunction(FixedtimeStep)
+                HandleInput();
 
+                pi_test_();
+                pi2_test();
+
+                DEBUGINFO = printDebug(renderer,lastFt);
+                if(DEBUGINFO == nullptr)
+                    exit(1);
 
                 SDL_SetWindowTitle(win,("Frametime: "+
                                         std::to_string(lastFt)+
                                         "; FPS: "+std::to_string(fps)
                 ).c_str());
-
-                auto avg = (measure<std::chrono::nanoseconds>::duration(SDL_SetWindowTitle,win,("Frametime: "+std::to_string(lastFt)+"; FPS: "+std::to_string(fps)).c_str() ));
-
-                /*std::cerr<<"\nFrameTime   : "<<lastFt/1000.f<<"\n"
-                         <<"FPS         : "<<fps<<"\n"
-                         <<"CurrentSlice: "<<currentSlice<<"\n"
-                                                         <<"\n"<<"Duration: "<<avg.count()/1000.f<<" nanoseconds/1000\n";*/
-
             }
+
+            //RenderLogic
+            SDL_RenderClear(renderer);
+            SDL_RenderCopy(renderer,DEBUGINFO, nullptr,&(SDL_Rect{0,0,1124,225}));
+            SDL_RenderPresent(renderer);
 
 
         }catch (std::runtime_error& error){
@@ -180,6 +266,9 @@ int main(int argc, char** argv) {
 
 
     }
+
+
+
 
     ///////////////////////////////////////////////////////////////////////////
     ///////////////////Clean up////////////////////////////////////////////////
@@ -217,3 +306,9 @@ namespace Wrapper
 }
 
 
+//auto avg = (measure<std::chrono::nanoseconds>::duration(SDL_SetWindowTitle,win,("Frametime: "+std::to_string(lastFt)+"; FPS: "+std::to_string(fps)).c_str() ));
+
+/*std::cerr<<"\nFrameTime   : "<<lastFt/1000.f<<"\n"
+         <<"FPS         : "<<fps<<"\n"
+         <<"CurrentSlice: "<<currentSlice<<"\n"
+                                         <<"\n"<<"Duration: "<<avg.count()/1000.f<<" nanoseconds/1000\n";*/

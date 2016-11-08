@@ -6,6 +6,8 @@
 
 #define ME_WARNING(type,msg,value,name,para)
 
+
+
 ConfigSettingInt::ConfigSettingInt(const char* name, const char* synopsis, int initialValue) {
     this->AddToList();
     m_name = name;

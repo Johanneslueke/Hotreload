@@ -5,6 +5,7 @@
 #ifndef HOTRELOAD_HOTRELOAD_H
 #define HOTRELOAD_HOTRELOAD_H
 
+#include <vector>
 #include <map>
 #include <dlfcn.h>
 #include <iostream>
@@ -12,19 +13,20 @@
 #include <sys/stat.h>
 #include <unistd.h>
 #include <chrono>
+#include <atomic>
 
 ///////////////////////////////////////////////////////////////////////////
 /////////////////////////ConfigClass///////////////////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 class ConfigSettingString {
 public:
-    /// Registers an integer setting
+    /// Registers an std::string setting
     ConfigSettingString(const char* name, const char* synopsis, const std::string& initialValue);
 
-    /// Assigns an integer value to the setting
+    /// Assigns an std::string value to the setting
     ConfigSettingString& operator=(const std::string& value);
 
-    /// Returns the setting's value as integer
+    /// Returns the setting's value as char *
     operator char*(void) const;
 
     /// Tries to find a setting, returns a nullptr if no setting could be found
@@ -176,25 +178,28 @@ typedef void* (* FillAPI)(void*);
 //Set Baseadress to 0x10000000
 static void* BaseAdress = (void*)Gigabytes(4);
 
-typedef struct MemoryChunk
+/*
+ * typedef struct MemoryChunk
 {
     MemoryAdress StartAdress;
     memory_index ChunkSize;
-    /* data */
+    /////// * data * /
 
     MemoryChunk(MemoryAdress a,memory_index s) : StartAdress(a),ChunkSize(s){};
 }Chunk;
+*/
+
 
 typedef struct  MemoryArena
 {
     MemoryAdress StartAdress;
     memory_index Used;
     memory_index Size;
-    std::map<std::string, MemoryChunk*> MemoryChunks;
+    memory_index ChunkSize;
     uint64 ID;
     /* data */
 
-    MemoryArena():MemoryChunks()
+    MemoryArena()//:MemoryChunks()
     {};
 
 }Arena;
@@ -220,7 +225,11 @@ typedef struct ErrorInformation
 ///////////////////////////////////////////////////////////////////////////
 #define HOTRELOAD_ERROR(name) void name(const Error*)
 #define HOTRELOAD_IO_STREAM(name) const char* name(const char*, int byte)
-#define HOTRELOAD_MEMORY_FUNCTION(name) MemoryArena* name(void* adress, int i)
+
+#define HOTRELOAD_MEMORY_ALLOCATE(name) void* name(void* adress, int size)
+#define HOTRELOAD_MEMORY_DEALLOCATE(name) int name(void* adress, int size)
+
+#define HOTRELOAD_MEMORYARENA_FUNCTION(name) Arena* name(void* adress, int size)
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -228,10 +237,6 @@ typedef struct ErrorInformation
 ///////////////////////////////////////////////////////////////////////////
 namespace{//anonymus namespace prevents symbol clashing
     HOTRELOAD_ERROR(stub_error){ /*std::cerr<<"stub\n"; */};
-    HOTRELOAD_IO_STREAM(stub_readFile){};
-    HOTRELOAD_IO_STREAM(stub_writeFile){};
-    HOTRELOAD_MEMORY_FUNCTION(stub_allocate_arena){};
-    HOTRELOAD_MEMORY_FUNCTION(stub_deallocate_arena){};
 }
 
 ///////////////////////////////////////////////////////////////////////////
@@ -240,8 +245,16 @@ namespace{//anonymus namespace prevents symbol clashing
 typedef HOTRELOAD_ERROR(hotreload_error);
 typedef HOTRELOAD_IO_STREAM(hotreload_readFile);
 typedef HOTRELOAD_IO_STREAM(hotreload_writeFile);
-typedef HOTRELOAD_MEMORY_FUNCTION(hotreload_allocate_arena);
-typedef HOTRELOAD_MEMORY_FUNCTION(hotreload_deallocate_arena);
+
+
+typedef HOTRELOAD_MEMORYARENA_FUNCTION(hotreload_create_arena);
+typedef HOTRELOAD_MEMORYARENA_FUNCTION(hotreload_delete_arena);
+
+typedef HOTRELOAD_MEMORY_DEALLOCATE(hotreload_allocate_memory);
+typedef HOTRELOAD_MEMORY_DEALLOCATE(hotreload_deallocate_memory);
+
+typedef HOTRELOAD_MEMORY_DEALLOCATE(hotreload_allocate_memory);
+typedef HOTRELOAD_MEMORY_DEALLOCATE(hotreload_deallocate_memory);
 
 
 ///////////////////////////////////////////////////////////////////////////
@@ -382,10 +395,10 @@ inline u32 GetThreadID(void) {
  * After this function call the function which should be measured has to be executed.
  * Afterwards get_CPU_CYCLE_SECOND is expected to be called!!!
  */
-inline u64 get_CPU_CYCLE_FIRST( )
+inline u32 get_CPU_CYCLE_FIRST( )
 {
-    u64 cycles_high = 0;
-    u64 cycles_low = 0;
+    u32 cycles_high = 0;
+    u32 cycles_low = 0;
     asm volatile (
             "CPUID\n\t" // serialize
             "RDTSC\n\t" // read TIME STAMP COUNTER
@@ -409,11 +422,11 @@ inline u64 get_CPU_CYCLE_FIRST( )
  * CPUID itself.
  *
  */
-inline u64 get_CPU_CYCLE_SECOND()
+inline u32 get_CPU_CYCLE_SECOND()
 {
 
-    u64 cycles_high = 0;
-    u64 cycles_low = 0;
+    u32 cycles_high = 0;
+    u32 cycles_low = 0;
     asm volatile (
             "RDTSCP\n\t"/*read the clock*/
             "mov %%edx, %0\n\t"
@@ -438,9 +451,10 @@ inline u32 GetThreadID(void) {
 /////////////////////////////////Debug mechanism///////////////////////////
 ///////////////////////////////////////////////////////////////////////////
 
-#define TIMEBLOCK__(NUMBER, ...) timed_block TimeBlock_##NUMBER(__COUNTER__, __FILE__, __LINE__, FUNCTION__, ## __VA_ARGs__)
-#define TIMEBLOCK_(NUMBER, ...) TIMEBLOCK__(NUMBER, ## __VA_ARGS__)
-#define TIMEBLOCK(...) TIMEBLOCK_(__LINE__, ## __VA_ARGS__)
+#define TIMEBLOCK___(NUMBER, ...) timed_block TimeBlock_##NUMBER( __COUNTER__ , __FILE__ , __LINE__ , __FUNCTION__ )
+#define TIMEBLOCK__(NUMBER, ...) TIMEBLOCK___( NUMBER )
+#define TIMEBLOCK_(...) TIMEBLOCK__( __LINE__  )
+#define TIMEBLOCK TIMEBLOCK_();
 
 struct DEBUG_RECORDS{
     char* filename;
@@ -449,32 +463,52 @@ struct DEBUG_RECORDS{
     u32   linenumber = 0;
     u64   clocks = 0;
 
-    u32 hitcounter = 0;
+    u32 ThreadID = 0;
+
+    std::chrono::time_point<std::chrono::high_resolution_clock,std::chrono::nanoseconds> StartInTime;
+    double DeltaValue;
+
+    std::atomic<unsigned long long> CycleCount{0};
+    std::atomic<unsigned long long> hitcounter{0};
+
 };
 
 
 namespace {
-    DEBUG_RECORDS *DebugRecordArray;
-}
-
-
+     DEBUG_RECORDS records[5];
+};
 
 class timed_block{
 public:
     DEBUG_RECORDS* Record;
+    u32            StartCycle;
 
-    timed_block(int counter,char* filename,int line,char* function, int hitcount=1) {
-        this->Record = DebugRecordArray + counter;
-        Record->filename = filename;
+    timed_block(int counter,const char* filename,int line,const char* function) {
+
+        //Record = new DEBUG_RECORDS;
+        //ConfigSettingVector<DEBUG_RECORDS*> DebugRecord(std::string(std::string({filename}) + std::string({function})).c_str(),"DebugRecords",Record);
+
+
+        Record = records + counter;
+        Record->StartInTime = std::chrono::high_resolution_clock::now();
+        Record->filename = const_cast<char*>(filename);
         Record->linenumber = line;
-        Record->functionname = function;
-        Record->clocks = get_CPU_CYCLE_FIRST();
-        Record->hitcounter += hitcount;
+        Record->functionname = const_cast<char*>(function);
+        Record->hitcounter += counter ;
+        Record->ThreadID = GetThreadID();
+        StartCycle += get_CPU_CYCLE_FIRST();
+
+
+
     }
 
     ~timed_block(){
 
-        Record->clocks = get_CPU_CYCLE_SECOND();
+        auto Delta = get_CPU_CYCLE_SECOND() - StartCycle;
+        Record->CycleCount = Delta;
+        auto elapsedTime(std::chrono::high_resolution_clock::now() - Record->StartInTime);
+        Record->DeltaValue = {std::chrono::duration_cast<
+                std::chrono::duration<float, std::milli>>(elapsedTime).count() } ;
 
     }
 };
