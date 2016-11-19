@@ -10,6 +10,7 @@
 
 #include "DynamicLib.h"
 
+#include <stdlib.h>
 using FrameTime = double;
 
 
@@ -93,6 +94,7 @@ SDL_Texture* renderText(const std::string &message, const std::string &fontFile,
     SDL_Surface *surf = TTF_RenderText_Blended_Wrapped(font, message.c_str(), color,1324);
     if (surf == nullptr){
         TTF_CloseFont(font);
+        std::cerr<<SDL_GetError()<<"\n";
         //logSDLError(std::cout, "TTF_RenderText");
         return nullptr;
     }
@@ -106,20 +108,9 @@ SDL_Texture* renderText(const std::string &message, const std::string &fontFile,
     return texture;
 }
 
-auto printDebug(SDL_Renderer *renderer, double d) -> SDL_Texture*
+auto printDebug(SDL_Renderer *renderer,const std::stringstream& s) -> SDL_Texture*
 {
     TIMEBLOCK;
-    std::stringstream s;
-    for(int size = 0; size < ArrayCount(records);size++)
-    {
-
-        s<<"Function: \t"<<records[size].functionname
-         <<"Cycle: \t"<<(records[size].CycleCount/1000) <<" [mc]\t"
-         <<"Cycle/Frame: \t"<<(records[size].CycleCount/1000)/d <<" [mc/f]\t"
-         <<"Delta: \t" <<records[size].DeltaValue <<" [ns]\t"
-         <<"Cy*Delta: \t"<<((records[size].CycleCount/1000)*(records[size].DeltaValue))*d<<" [mc*delta/f]"
-         <<" \n";
-    }
 
     return  renderText(s.str(),"/home/johannes/ClionProjects/HotReload/OpenSans-SemiboldItalic.ttf",{255,255,255,SDL_ALPHA_OPAQUE},18,renderer);
     /*if(Text == nullptr)
@@ -149,9 +140,115 @@ namespace {
     DEBUG_RECORDS records[__COUNTER__ + 1];
 }*/
 
+
+template <typename T>
+class Interface_Allocater
+{
+protected:
+    Interface_Allocater() = default;
+    Interface_Allocater(const Interface_Allocater&) = delete;
+    Interface_Allocater(Interface_Allocater&&) = delete;
+    virtual ~Interface_Allocater() = default;
+
+    virtual void* allocate(size_t size) = 0;
+    virtual void deallocate(void*) = 0;
+    //virtual size_t getSize() = 0;
+
+    typedef T value_type;
+    typedef value_type* pointer;
+    typedef const value_type* const_pointer;
+    typedef value_type& reference;
+    typedef const value_type& const_reference;
+    typedef std::size_t size_type;
+    typedef std::ptrdiff_t difference_type;
+};
+
+class Policy_TestHeap : protected Interface_Allocater<int>
+{
+public:
+
+    Policy_TestHeap(){};
+    virtual ~Policy_TestHeap(){};
+
+    virtual void* allocate(size_t size){
+        std::cout<<"Test\n\n";
+        return nullptr;
+    };
+
+    virtual void deallocate(void*){};
+
+};
+
+
+template <class Policy>
+class Policy_MallocHeap : protected Policy, protected Interface_Allocater<int>
+{
+public:
+
+    Policy_MallocHeap(){};
+    virtual ~Policy_MallocHeap(){};
+
+    virtual void* allocate(size_t size){
+        std::cout<<"ROCK N ROLL\n";
+        return Policy::allocate(size);
+    };
+    virtual void deallocate(void*){};
+
+};
+
+template < class Policy >
+class ArenaAllocater : protected Policy
+{
+public:
+
+    typedef typename Policy::size_type          size_type;
+    typedef typename Policy::difference_type    difference_type;
+    typedef typename Policy::pointer            pointer;
+    typedef typename Policy::const_pointer      const_pointer;
+    typedef typename Policy::reference          reference;
+    typedef typename Policy::const_reference    const_reference;
+    typedef typename Policy::value_type         value_type;
+    typedef Policy                              Strategie;
+
+public:
+
+    explicit ArenaAllocater() = default;
+    ~ArenaAllocater() = default;
+
+    virtual void* allocate(size_t size){
+        std::cout<<"blKLDASDASD\n";
+        Strategie::allocate(size);
+    }
+
+
+    virtual void deallocate(void* p){
+        Strategie::deallocate(p);
+    }
+
+};
+
+
+
 int main(int argc, char** argv) {
 
     //TIMEBLOCK;
+     ArenaAllocater< Policy_MallocHeap<Policy_TestHeap> > T;
+
+    //Policy_MallocHeap<Policy_TestHeap> T;
+
+    char Test[] = "test";
+
+    std::cout<<(2[Test]) << "\n\n--";
+    if(T.allocate(4) == nullptr)
+    {
+        std::cout<<"###########################ü#############It does work\n";
+    }
+
+    {
+        int alpha = 0;
+    }
+
+
 
     ///////////////////////////////////////////////////////////////////////////
     ///////////////////Create Configuartion Settings///////////////////////////
@@ -222,6 +319,7 @@ int main(int argc, char** argv) {
             ///////////////////////////////////////////////////////////////////////////////////////////////////////////
             //EventLogic
             //
+            std::stringstream s;
             currentSlice = lastFt;
             for(; currentSlice >= ftSlice; currentSlice -= ftSlice)
             {
@@ -229,12 +327,21 @@ int main(int argc, char** argv) {
                 //someupdatefunction(FixedtimeStep)
                 HandleInput();
 
-                pi_test_();
-                pi2_test();
+                //pi_test_();
+                //pi2_test();
 
-                DEBUGINFO = printDebug(renderer,lastFt);
-                if(DEBUGINFO == nullptr)
-                    exit(1);
+                //s.str("");
+                for(int size = 0; size < ArrayCount(records);size++)
+                {
+
+                    s<<"Function: \t"<<records[size].functionname
+                     <<"Cycle: \t"<<(records[size].CycleCount/1000) <<" [mc]\t"
+                     <<"Cycle/Frame: \t"<<(records[size].CycleCount/1000)/lastFt <<" [mc/f]\t"
+                     <<"Delta: \t" <<records[size].DeltaValue <<" [ns]\t"
+                     <<"Cy*Delta: \t"<<((records[size].CycleCount/1000)*(records[size].DeltaValue))*lastFt<<" [mc*delta/f]"
+                     <<" \n";
+                }
+
 
                 SDL_SetWindowTitle(win,("Frametime: "+
                                         std::to_string(lastFt)+
@@ -242,9 +349,13 @@ int main(int argc, char** argv) {
                 ).c_str());
             }
 
+            DEBUGINFO = printDebug(renderer,s);
+
+                //exit(1);
             //RenderLogic
             SDL_RenderClear(renderer);
-            SDL_RenderCopy(renderer,DEBUGINFO, nullptr,&(SDL_Rect{0,0,1124,225}));
+            if(DEBUGINFO != nullptr)
+                SDL_RenderCopy(renderer,DEBUGINFO, nullptr,&(SDL_Rect{0,0,1124,225}));
             SDL_RenderPresent(renderer);
 
 
